@@ -9,6 +9,13 @@ public class Obake : MonoBehaviour
     private Camera mainCamera;
     private RaycastHit hit;
 
+    public int size;
+    public int id;
+    public int owner;
+    public int[] nowXY = { -1, -1 };
+
+    Board board = Board.GetInstance();
+
     // Use this for initialization
     void Start()
     {
@@ -42,13 +49,14 @@ public class Obake : MonoBehaviour
 
         if (Physics.Raycast(ray.origin, ray.direction, out hit, Mathf.Infinity) && hit.collider == gameObject.GetComponent<Collider>())
         {
-            isMoving = true;
-            gameObject.layer = LayerMask.NameToLayer("Ignore Raycast");
+            if (board.canMove(this))
+            {
+                isMoving = true;
+            }
         }
         else
         {
             isMoving = false;
-            gameObject.layer = LayerMask.NameToLayer("Default");
         }
 
     }
@@ -62,7 +70,7 @@ public class Obake : MonoBehaviour
         Vector3 mousePos = Input.mousePosition;
         Ray touchPointToRay = mainCamera.ScreenPointToRay(mousePos);
         Vector3 p = nowPos;
-        if (Physics.Raycast(touchPointToRay, out hit))
+        if (Physics.Raycast(touchPointToRay, out hit, Mathf.Infinity, ~(1<<8)))
         {
             p = hit.point;
             p.y += transform.localScale.y;
@@ -73,13 +81,20 @@ public class Obake : MonoBehaviour
     {
         Vector3 mousePos = Input.mousePosition;
         Ray touchPointToRay = mainCamera.ScreenPointToRay(mousePos);
-        if (Physics.Raycast(touchPointToRay, out hit))
+        if (Physics.Raycast(touchPointToRay, out hit, Mathf.Infinity, ~(1 << 8)))
         {
             GameObject tile = hit.collider.gameObject;
             if (tile.CompareTag("Tile"))
             {
-                nowPos = tile.transform.position;
-                nowPos.y = transform.localScale.y+hit.point.y;
+                int x = (int)tile.transform.position.x;
+                int z = (int)tile.transform.position.z;
+                if (board.canMove(this) && board.canPut(x, z, this))
+                {
+                    board.move(x, z, this);
+                    nowPos = tile.transform.position;
+                    nowPos.y = transform.localScale.y + hit.point.y;
+                }
+
             }
         }
         transform.position = nowPos;
