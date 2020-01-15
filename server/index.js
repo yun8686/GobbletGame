@@ -19,9 +19,23 @@ const TURN={
 function masuStr(masu){
   return ("000000"+masu.toString(2)).slice(-6);
 }
-function printMap(map){
+function realMasu(masu){
+  var m = gettableFromMasu(masu);
+  if(m==MASUBIT.SAKIDAI) return "A";
+  if(m==MASUBIT.SAKICHU) return "B";
+  if(m==MASUBIT.SAKISHO) return "C";
+  if(m==MASUBIT.ATODAI) return "a";
+  if(m==MASUBIT.ATOCHU) return "b";
+  if(m==MASUBIT.ATOSHO) return "c";
+  return " ";
+}
+function printMap(map, real){
   for(var i=0;i<3;i++){
-    console.log(""+masuStr(map[i*3])+","+masuStr(map[i*3+1])+","+masuStr(map[i*3+2]));
+    if(real){
+      console.log(""+realMasu(map[i*3])+","+realMasu(map[i*3+1])+","+realMasu(map[i*3+2]));
+    }else{
+      console.log(""+masuStr(map[i*3])+","+masuStr(map[i*3+1])+","+masuStr(map[i*3+2]));
+    }
   }
 }
 function getTurnMasu(turn){
@@ -33,6 +47,7 @@ function getTurnMasu(turn){
 }
 // 現在の手にあるコマを検索
 function getHands(map, turn){
+  if(map.length > 9) console.log(map);
   var myhands = Math.pow(3,3)-1;  // 222
   var [MASUDAI,MASUCHU,MASUSHO] = getTurnMasu(turn);
   map.forEach(v=>{
@@ -83,6 +98,10 @@ function canPutOnMasu(masu, koma){
 function putMasu(masu, koma){
   return masu|koma;
 }
+// マスから一番上の駒を削除したときのマスを取得する
+function removeMasu(masu, koma){
+  return masu^koma;
+}
 // mapをコピーする
 function cloneMap(map){
   return map.map(v=>v);
@@ -96,6 +115,42 @@ function getMasuColor(masu){
   if(masuColor&MASUBIT.SAKICHU) return TURN.SAKI;
   if(masuColor&MASUBIT.SAKISHO) return TURN.SAKI;
   return TURN.ATO;
+}
+
+function doForcePut(map, turn){
+  // 適当に置く
+  var [MASUDAI,MASUCHU,MASUSHO] = getTurnMasu(turn);
+
+  // 手から置くパターン
+  var hands = getHands(map, turn);
+  var masus = [];
+  if(hands>=HANDBIT.DAI) masus.push(MASUDAI);
+  if(hands%HANDBIT.DAI>=HANDBIT.CHU) masus.push(MASUCHU);
+  if(hands%HANDBIT.DAI%HANDBIT.CHU>=HANDBIT.SHO) masus.push(MASUSHO);
+  if(masus.length > 0){
+    // 手から置ける場合
+    for(var i=0;i<map.length;i++){
+      if(canPutOnMasu(map[i], masus[0])){
+        var cMap = cloneMap(map);
+        cMap[i] = putMasu(cMap[i], masus[0]);
+        return cMap;
+      }
+    }
+  }
+  console.log("doForcePut", map);
+  for(var i=0;i<map.length;i++){
+    if(getMasuColor(map[i])==turn){
+      var coma = gettableFromMasu(map[i]);
+      for(var j=0;j<map.length;j++){
+        if(canPutOnMasu(map[j], coma)){
+          var cMap = cloneMap(map);
+          cMap[i] = removeMasu(cMap[i], coma);
+          cMap[j] = putMasu(cMap[j], coma);
+          return cMap;
+        }
+      }
+    }
+  }
 }
 
 // 勝敗判定
@@ -118,6 +173,48 @@ function checkWinner(map){
   if(masuColorMap[2] && masuColorMap[2]==masuColorMap[4] && masuColorMap[2]==masuColorMap[6]){
     return masuColorMap[2];
   }
+}
+
+// 勝てるマスがあるかどうか判定
+function canWin(map, turn){
+  var [MASUDAI,MASUCHU,MASUSHO] = getTurnMasu(turn);
+
+  // 手から置くパターン
+  var hands = getHands(map, turn);
+  for(var i=0;i<map.length;i++){
+    var komas = [];
+    if(hands>=HANDBIT.DAI) komas.push(MASUDAI);
+    if(hands%HANDBIT.DAI>=HANDBIT.CHU) komas.push(MASUCHU);
+    if(hands%HANDBIT.DAI%HANDBIT.CHU>=HANDBIT.SHO) komas.push(MASUSHO);
+    for(var j=0;j<komas.length;j++){
+      var koma = komas[j];
+      if(canPutOnMasu(map[i], koma)){
+        var cMap = cloneMap(map);
+        cMap[i] = putMasu(cMap[i], koma);
+        if(checkWinner(cMap)){
+          return true;
+        }
+      }
+    }
+  }
+
+  // 持ち上げて移動パターン
+  for(var i=0;i<map.length;i++){
+    if(getMasuColor(map[i])==turn){
+      var coma = gettableFromMasu(map[i]);
+      for(var j=0;j<map.length;j++){
+        if(canPutOnMasu(map[j], coma)){
+          var cMap = cloneMap(map);
+          cMap[i] = removeMasu(cMap[i], coma);
+          cMap[j] = putMasu(cMap[j], coma);
+          if(checkWinner(cMap)){
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
 }
 
 function addMemo(memo, map){
@@ -245,59 +342,47 @@ function nextMap(map, turn){
   var mapMemo = {};
   var hands = getHands(map, turn);
   // 手から出して置ける場所を全取得
-  if(hands>=HANDBIT.DAI){
-    // 大を持ってる場合
-    for(var i=0;i<map.length;i++){
-      var v = map[v];
-      if(canPutOnMasu(v, MASUDAI)){
+  var masus = [];
+  if(hands>=HANDBIT.DAI) masus.push(MASUDAI);
+  if(hands%HANDBIT.DAI>=HANDBIT.CHU) masus.push(MASUCHU);
+  if(hands%HANDBIT.DAI%HANDBIT.CHU>=HANDBIT.SHO) masus.push(MASUSHO);
+  for(var i=0;i<map.length;i++){
+    for(var j=0;j<masus.length;j++){
+      var masu = masus[j];
+      var v = map[i];
+      if(canPutOnMasu(v, masu)){
         var cMap = cloneMap(map);
-        cMap[i] = putMasu(cMap[i], MASUDAI);
-        //if(!isMemoContain(mapMemo, cMap)){
-          if(checkWinner(cMap)){
-            return [cMap];
-          }
+        cMap[i] = putMasu(cMap[i], masu);
+        if(checkWinner(cMap)){ // 勝てる手があればそれだけ返す
+          return [cMap];
+        }
+        if(!canWin(cMap, 3-turn)){  // 次に負けるときは選択しない
           maps.push(cMap);
           mapMemo[cMap] = true;
-        //}
+        }
       }
     }
   }
-  if(hands%HANDBIT.DAI>=HANDBIT.CHU){
-    // 中を持ってる場合
-    for(var i=0;i<map.length;i++){
-      var v = map[v];
-      if(canPutOnMasu(v, MASUCHU)){
-        var cMap = cloneMap(map);
-        cMap[i] = putMasu(cMap[i], MASUCHU);
-        //if(!isMemoContain(mapMemo, cMap)){
-          if(checkWinner(cMap)){
-            return [cMap];
-          }
-          maps.push(cMap);
-          mapMemo[cMap] = true;
-        //}
-      }
-    }
-  }
-  if(hands%HANDBIT.DAI%HANDBIT.CHU>=HANDBIT.SHO){
-    // 小を持ってる場合
-    for(var i=0;i<map.length;i++){
-      var v = map[v];
-      if(canPutOnMasu(v, MASUSHO)){
-        var cMap = cloneMap(map);
-        cMap[i] = putMasu(cMap[i], MASUSHO);
-        //if(!isMemoContain(mapMemo, cMap)){
-          if(checkWinner(cMap)){
-            return [cMap];
-          }
-          maps.push(cMap);
-          mapMemo[cMap] = true;
-        //}
-      }
-    }
-  }
-
   // 持ち上げて移動パターン
+  for(var i=0;i<map.length;i++){
+    if(getMasuColor(map[i])==turn){
+      var coma = gettableFromMasu(map[i]);
+      for(var j=0;j<map.length;j++){
+        if(canPutOnMasu(map[j], coma)){
+          var cMap = cloneMap(map);
+          cMap[i] = removeMasu(cMap[i], coma);
+          cMap[j] = putMasu(cMap[j], coma);
+          if(checkWinner(cMap)){ // 勝てる手があればそれだけ返す
+            return [cMap];
+          }
+          if(!canWin(cMap, 3-turn)){  // 次に負けるときは選択しない
+            maps.push(cMap);
+            mapMemo[cMap] = true;
+          }
+        }
+      }
+    }
+  }
 
   return maps;
 
@@ -312,34 +397,96 @@ var map = [
 var cnt = 0;
 var mapMemo = {};
 var start = new Date();
-nextMap(map, TURN.SAKI).forEach((map, i)=>{
-  if(checkWinner(map) || isMemoContain(mapMemo, map)) return;
-  else addMemo(mapMemo, map);
-  nextMap(map, TURN.ATO).forEach((map, j)=>{
-    if(checkWinner(map) || isMemoContain(mapMemo, map)) return;
-    else addMemo(mapMemo, map);
-    nextMap(map, TURN.SAKI).forEach((map, k)=>{
-      if(checkWinner(map) || isMemoContain(mapMemo, map)) return;
-      else addMemo(mapMemo, map);
-      nextMap(map, TURN.ATO).forEach((map, k)=>{
-        if(checkWinner(map) || isMemoContain(mapMemo, map)) return;
-        else addMemo(mapMemo, map);
-        nextMap(map, TURN.SAKI).forEach((map, k)=>{
-          if(checkWinner(map) || isMemoContain(mapMemo, map)) return;
-          else addMemo(mapMemo, map);
-          nextMap(map, TURN.ATO).forEach((map, k)=>{
-            if(checkWinner(map) || isMemoContain(mapMemo, map)) return;
-            else addMemo(mapMemo, map);
-            cnt++;
-          });
+
+var getNextHand = (function(map, turn, depth){
+  // depth手以内に勝てるパターンが一番多いのを検索
+  var nexts = nextMap(map, turn);
+  var myTurn = turn;
+  var ansMemo = {};
+  var mapMemo = {};
+  nexts.forEach(next=>{
+    var stack = [next];
+    var winCnt = 0;
+    for(var i=0;i<depth;i++){
+      turn = 3-turn;
+      var n_stack = [];
+      stack.forEach(map=>{
+        nextMap(map, turn).forEach(map=>{
+          var winner = checkWinner(map);
+          if(isMemoContain(mapMemo, map)){
+          }else if(winner==myTurn){
+            winCnt++;
+          }else if(winner==3-myTurn){
+            winCnt--;
+          }else{
+            addMemo(mapMemo, map);
+            n_stack.push(map);
+          }
         });
-      });
-    });
+      })
+      stack = n_stack;
+    }
+    ansMemo[next] = winCnt;
   });
+  if(Object.keys(ansMemo).length == 0){
+    // 絶対負けるときは適当に置く
+    return doForcePut(map, turn);
+  }else{
+    return Object.keys(ansMemo).sort((a,b)=>ansMemo[a]-ansMemo[b])[0].split(",").map(v=>v-0);
+  }
 });
-console.log(cnt);
-console.log(new Date() - start);
-console.log("isMemoContain.times", isMemoContain.times);
-console.log("isMemoContain.count", isMemoContain.count);
-console.log("kaitenMap.count", kaitenMap.count);
-console.log("kaitenMap.times", kaitenMap.times);
+var turn = TURN.SAKI;
+/*
+console.log(getNextHand([
+  parseInt("100000",2),parseInt("000100",2),parseInt("100000",2),
+  parseInt("000100",2),parseInt("010000",2),parseInt("000010",2),
+  parseInt("010000",2),parseInt("000010",2),parseInt("001000",2),
+], turn, 4));
+*/
+if(true)(()=>{
+  while(false){
+    var next = getNextHand(map, turn, 4);
+    printMap(next, true);
+    printMap(next);
+    console.log("");
+    turn = 3-turn;
+    map = next;
+    if(checkWinner(map)){
+      console.log(checkWinner(map));
+      break;
+    }
+  }
+  printMap(
+  getNextHand([
+  parseInt("100010", 2),parseInt("000000", 2),parseInt("001000", 2),
+  parseInt("100010", 2),parseInt("010100", 2),parseInt("000000", 2),
+  parseInt("000100", 2),parseInt("010000", 2),parseInt("000000", 2),
+  ], 2, 4))
+  /*
+  var depth = 6;
+  var stack = [map];
+  var turn = TURN.SAKI;
+  for(var d=0;d<depth;d++){
+    var n_stack = [];
+    cnt = 0;
+    stack.forEach(map=>{
+      var nexts = nextMap(map, turn);
+      for(var i=0,e=nexts.length;i<e;i++){
+        if(checkWinner(nexts[i]) || isMemoContain(mapMemo, nexts[i])) continue;
+        else addMemo(mapMemo, nexts[i]);
+        cnt++;
+        n_stack.push(nexts[i]);
+      }
+    });
+    turn = 3-turn;
+    stack = n_stack;
+  }
+  */
+  console.log(cnt);
+  console.log(new Date() - start);
+  console.log("isMemoContain.times", isMemoContain.times);
+  console.log("isMemoContain.count", isMemoContain.count);
+  console.log("kaitenMap.count", kaitenMap.count);
+  console.log("kaitenMap.times", kaitenMap.times);
+})();
+console.log("ok")
